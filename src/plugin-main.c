@@ -22,12 +22,12 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
-void register_button_source(void);
+void register_online_status_source(void);
 
 bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
-	register_button_source();
+	register_online_status_source();
 	return true;
 }
 

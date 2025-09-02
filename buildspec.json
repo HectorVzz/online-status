@@ -36,8 +36,8 @@
       "bundleId": "com.example.plugintemplate-for-obs"
     }
   },
-  "name": "plugintemplate-for-obs",
-  "displayName": "Plugin Template for OBS",
+  "name": "online-status",
+  "displayName": "Online Status",
   "version": "1.0.0",
   "author": "Hector Vazquez",
   "website": "https://example.com",
