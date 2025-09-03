@@ -16,6 +16,11 @@ static const char *online_status_get_name(void *)
     return "Online Status";
 }
 
+static void online_status_defaults(obs_data_t *settings)
+{
+    obs_data_set_default_string(settings, "status_text", "");
+}
+
 static void online_status_update(void *data, obs_data_t *settings)
 {
     auto *s = static_cast<OnlineStatus *>(data);
@@ -44,29 +49,44 @@ static void *online_status_create(obs_data_t *settings, obs_source_t *owner)
         obs_source_create_private("text_ft2_source_v2", "online-status:text", child);
     obs_data_release(child);
 
+    if (!s->status_text) {
+        blog(LOG_ERROR, "[online-status] Failed to create Text (FreeType 2) child (id=text_ft2_source_v2)");
+    }
+
     online_status_update(s, settings);
     return s;
 }
 
 static void online_status_destroy(void *data)
 {
-    delete static_cast<OnlineStatus *>(data);
+    auto *s = static_cast<OnlineStatus *>(data);
+    if (s) {
+        if (s->status_text) {
+            obs_source_release(s->status_text);
+            s->status_text = nullptr;
+        }
+        delete s;
+    }
+}
+static uint32_t online_status_get_width(void *data)
+{
+    auto *s = static_cast<OnlineStatus *>(data);
+    return s && s->status_text ? obs_source_get_width(s->status_text) : 0;
 }
 
-static uint32_t online_status_get_width(void * /*data*/)
+static uint32_t online_status_get_height(void *data)
 {
-    return 300; // placeholder
+    auto *s = static_cast<OnlineStatus *>(data);
+    return s && s->status_text ? obs_source_get_height(s->status_text) : 0;
+}
+static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
+{
+    auto *s = static_cast<OnlineStatus *>(data);
+    if (s && s->status_text) {
+        obs_source_video_render(s->status_text);
+    }
 }
 
-static uint32_t online_status_get_height(void * /*data*/)
-{
-    return 80; // placeholder
-}
-
-static void online_status_video_render(void * /*data*/, gs_effect_t * /*effect*/)
-{
-    // no-op for now (nothing drawn)
-}
 
 static obs_properties_t *online_status_properties(void * /*data*/)
 {
@@ -84,7 +104,9 @@ static obs_source_info online_status_info = {
     .destroy = online_status_destroy,
     .get_width = online_status_get_width,
     .get_height = online_status_get_height,
+    .get_defaults = online_status_defaults,
     .get_properties = online_status_properties,
+    .update = online_status_update,
     .video_render = online_status_video_render,
 };
 
