@@ -4,19 +4,48 @@
 
 #include <obs-module.h>
 #include <plugin-support.h>
+#include <string>
 
-struct OnlineStatus { /* empty for now */ };
+struct OnlineStatus { 
+    obs_source_t *status_text = nullptr;
+    std::string text;
+};
 
 static const char *online_status_get_name(void *)
 {
     return "Online Status";
 }
 
-static void *online_status_create(obs_data_t *settings, obs_source_t *source)
+static void online_status_update(void *data, obs_data_t *settings)
 {
-    UNUSED_PARAMETER(settings);
-    UNUSED_PARAMETER(source);
-    return new OnlineStatus(); // could be nullptr, but a tiny struct is fine
+    auto *s = static_cast<OnlineStatus *>(data);
+    const char *txt = obs_data_get_string(settings, "status_text");
+    s->text = txt ? txt : "";
+
+    if (s->status_text) {
+        obs_data_t *child = obs_data_create();
+        obs_data_set_string(child, "text", s->text.c_str());
+        // Optional: font, color, outline, bg
+        // obs_data_set_obj(child, "font", <obs_data with size/family/etc>);
+        obs_source_update(s->status_text, child);
+        obs_data_release(child);
+    }
+}
+
+static void *online_status_create(obs_data_t *settings, obs_source_t *owner)
+{
+    UNUSED_PARAMETER(owner);
+    auto *s = new OnlineStatus();
+
+    // Create private child: "Text (FreeType 2)"
+    obs_data_t *child = obs_data_create();
+    obs_data_set_string(child, "text", obs_data_get_string(settings, "status_text"));
+    s->status_text =
+        obs_source_create_private("text_ft2_source_v2", "online-status:text", child);
+    obs_data_release(child);
+
+    online_status_update(s, settings);
+    return s;
 }
 
 static void online_status_destroy(void *data)
@@ -41,7 +70,9 @@ static void online_status_video_render(void * /*data*/, gs_effect_t * /*effect*/
 
 static obs_properties_t *online_status_properties(void * /*data*/)
 {
-    return obs_properties_create();
+    obs_properties_t *props = obs_properties_create();
+    obs_properties_add_text(props, "status_text","Enter the status text to display", OBS_TEXT_DEFAULT);
+    return props;
 }
 
 static obs_source_info online_status_info = {
