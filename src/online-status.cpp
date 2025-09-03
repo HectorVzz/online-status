@@ -9,6 +9,7 @@
 struct OnlineStatus { 
     obs_source_t *status_text = nullptr;
     std::string text;
+    bool visible = true;
 };
 
 static const char *online_status_get_name(void *)
@@ -19,11 +20,13 @@ static const char *online_status_get_name(void *)
 static void online_status_defaults(obs_data_t *settings)
 {
     obs_data_set_default_string(settings, "status_text", "");
+    obs_data_set_default_bool(settings, "visible", true);
 }
 
 static void online_status_update(void *data, obs_data_t *settings)
 {
     auto *s = static_cast<OnlineStatus *>(data);
+    s->visible = obs_data_get_bool(settings, "visible");
     const char *txt = obs_data_get_string(settings, "status_text");
     s->text = txt ? txt : "";
 
@@ -34,6 +37,7 @@ static void online_status_update(void *data, obs_data_t *settings)
         // obs_data_set_obj(child, "font", <obs_data with size/family/etc>);
         obs_source_update(s->status_text, child);
         obs_data_release(child);
+        obs_source_set_enabled(s->status_text, s->visible);
     }
 }
 
@@ -82,9 +86,8 @@ static uint32_t online_status_get_height(void *data)
 static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
 {
     auto *s = static_cast<OnlineStatus *>(data);
-    if (s && s->status_text) {
-        obs_source_video_render(s->status_text);
-    }
+    if (!s || !s->visible || !s->status_text) return;
+    obs_source_video_render(s->status_text);
 }
 
 
@@ -92,6 +95,7 @@ static obs_properties_t *online_status_properties(void * /*data*/)
 {
     obs_properties_t *props = obs_properties_create();
     obs_properties_add_text(props, "status_text","Enter the status text to display", OBS_TEXT_DEFAULT);
+    obs_properties_add_bool(props, "visible", "Visible");
     return props;
 }
 
