@@ -1,0 +1,30 @@
+name: build-windows
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OBS Studio (for headers and CMake packages)
+        run: choco install obs-studio --no-progress -y
+
+      - name: Configure (CMake preset)
+        run: cmake --preset windows-x64 -DCMAKE_PREFIX_PATH="C:/Program Files/obs-studio"
+
+      - name: Build (RelWithDebInfo)
+        run: cmake --build --preset windows-x64 --config RelWithDebInfo
+
+      - name: Collect artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: online-status-windows
+          path: |
+            build_x64/**/*.dll
+            build_x64/rundir/**
+          if-no-files-found: warn
