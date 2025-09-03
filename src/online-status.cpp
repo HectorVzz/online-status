@@ -6,6 +6,7 @@
 #include <plugin-support.h>
 #include <obs-frontend-api.h>
 #include <string>
+#include <cmath>
 
 struct OnlineStatus {
 	obs_source_t *status_text = nullptr;
@@ -20,6 +21,12 @@ struct OnlineStatus {
     uint64_t prev_total = 0;
     uint64_t prev_dropped = 0;
     float since_last_drop = 0.0f;
+
+    // Blink config/state
+    bool blink_enabled = false;
+    double blink_rate_hz = 1.0; // blinks per second
+    double blink_phase = 0.0;   // seconds into current period
+    bool blink_on = true;       // current half-cycle visible?
 };
 
 static const char *online_status_get_name(void *)
@@ -35,6 +42,9 @@ static void online_status_defaults(obs_data_t *settings)
     obs_data_set_default_double(settings, "drop_threshold_pct", 1.0);
     obs_data_set_default_double(settings, "hide_after_sec", 3.0);
     obs_data_set_default_bool(settings, "visible", false);
+    // Blink defaults
+    obs_data_set_default_bool(settings, "blink_enabled", false);
+    obs_data_set_default_double(settings, "blink_rate_hz", 1.0);
 }
 
 static void online_status_update(void *data, obs_data_t *settings)
@@ -45,6 +55,11 @@ static void online_status_update(void *data, obs_data_t *settings)
     s->content_mode = (int)obs_data_get_int(settings, "content_mode");
 	s->drop_threshold_pct = obs_data_get_double(settings, "drop_threshold_pct");
 	s->hide_after_sec = (float)obs_data_get_double(settings, "hide_after_sec");
+    // Blink settings
+    s->blink_enabled = obs_data_get_bool(settings, "blink_enabled");
+    s->blink_rate_hz = obs_data_get_double(settings, "blink_rate_hz");
+    if (s->blink_rate_hz < 0.0)
+        s->blink_rate_hz = 0.0;
 
 	const char *txt = obs_data_get_string(settings, "status_text");
 	s->text = txt ? txt : "";
@@ -129,8 +144,21 @@ static void online_status_video_tick(void *data, float seconds)
         }
     }
 
-    // Keep children enabled in sync with selected mode
-    const bool effective_visible = (s->auto_visible || s->visible);
+    // Blink update
+    if (s->blink_enabled && s->blink_rate_hz > 0.0) {
+        const double period = 1.0 / s->blink_rate_hz;
+        s->blink_phase += seconds;
+        if (s->blink_phase >= period)
+            s->blink_phase = fmod(s->blink_phase, period);
+        // 50% duty cycle: visible in first half of the period
+        s->blink_on = (s->blink_phase < (period * 0.5));
+    } else {
+        s->blink_on = true;
+        s->blink_phase = 0.0;
+    }
+
+    // Keep children enabled in sync with selected mode and blink
+    const bool effective_visible = (s->auto_visible || s->visible) && (!s->blink_enabled || s->blink_on);
     if (s->status_text)
         obs_source_set_enabled(s->status_text, effective_visible && s->content_mode == 0);
     if (s->status_image)
@@ -205,7 +233,7 @@ static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
 	auto *s = static_cast<OnlineStatus *>(data);
     if (!s)
         return;
-    const bool effective_visible = (s->auto_visible || s->visible);
+    const bool effective_visible = (s->auto_visible || s->visible) && (!s->blink_enabled || s->blink_on);
     if (!effective_visible)
         return;
 
@@ -236,6 +264,9 @@ static obs_properties_t *online_status_properties(void * /*data*/)
         0.1);
     obs_properties_add_float_slider(props, "hide_after_sec", "Hide after seconds without drops", 0.0, 30.0, 0.1);
     obs_properties_add_bool(props, "visible", "Test text that auto-shows when dropping frames(for debugging)");
+    // Blink controls
+    obs_properties_add_bool(props, "blink_enabled", "Blink");
+    obs_properties_add_float_slider(props, "blink_rate_hz", "Blink rate (Hz)", 0.0, 10.0, 0.1);
 	return props;
 }
 
