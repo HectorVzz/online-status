@@ -1,62 +1,69 @@
-# OBS Plugin Template
+# Online Status (OBS Plugin)
 
-## Introduction
+Show a message or image automatically when your stream has connection issues (dropped frames), and hide it again when things stabilize. Useful to inform viewers you’re experiencing lag or reconnection.
 
-The plugin template is meant to be used as a starting point for OBS Studio plugin development. It includes:
+What it does
 
-- Boilerplate plugin source code
-- A CMake project file
-- GitHub Actions workflows and repository actions
+- Watches your stream’s dropped-frame stats.
+- Auto‑shows an overlay when drops exceed a threshold, then auto‑hides after a few stable seconds.
+- You choose what to display:
+  - Text message (with optional blinking), or
+  - An image (with optional blinking).
+- Manual “Visible” toggle if you want to show/hide it yourself.
 
-## Supported Build Environments
+Download
 
-| Platform       | Tool                 |
-| -------------- | -------------------- |
-| Windows        | Visal Studio 17 2022 |
-| macOS          | XCode 16.0           |
-| Windows, macOS | CMake 3.30.5         |
-| Ubuntu 24.04   | CMake 3.28.3         |
-| Ubuntu 24.04   | `ninja-build`        |
-| Ubuntu 24.04   | `pkg-config`         |
-| Ubuntu 24.04   | `build-essential`    |
+- Get the latest builds from the Releases/Tags page:
+  - https://github.com/HectorVzz/online-status/tags
+- Download the ZIP for your operating system.
 
-## Quick Start
+Install
 
-An absolute bare-bones [Quick Start Guide](https://github.com/obsproject/obs-plugintemplate/wiki/Quick-Start-Guide) is available in the wiki.
+- Windows:
+  1. Close OBS.
+  2. Unzip the download. Copy the included `obs-plugins`, `bin` and `data` folders into your OBS install (usually `C:\Program Files\obs-studio\`), merging folders if prompted
+  3. Start OBS.
+- Linux:
+  - If the ZIP contains `obs-plugins` and `data`, place them in your OBS install or your OBS portable folder. On many distros, system locations are protected; the simplest is to use a portable OBS or copy into `~/.config/obs-studio/plugins` if the ZIP is structured for user plugins.
+  - Alternatively, use your distro’s packaging or build from source (see below).
+- macOS:
+  - Not available at the moment
 
-## Documentation
+Use in OBS
 
-All documentation can be found in the [Plugin Template Wiki](https://github.com/obsproject/obs-plugintemplate/wiki).
+1. In OBS, click the “+” in Sources → add “Online Status”.
+2. Pick Content Type: Text or Image.
+3. For Text, enter the message. For Image, choose a file.
+4. Optional: enable Blink and adjust Blink rate (Hz).
+5. Auto‑show settings:
+   - “Drop % threshold” — how sensitive the trigger is.
+   - “Hide after seconds without drops” — how quickly it disappears once stable.
+6. Leave “Visible” on for normal behavior. The overlay will appear only during drops.
 
-Suggested reading to get up and running:
+Notes
 
-- [Getting started](https://github.com/obsproject/obs-plugintemplate/wiki/Getting-Started)
-- [Build system requirements](https://github.com/obsproject/obs-plugintemplate/wiki/Build-System-Requirements)
-- [Build system options](https://github.com/obsproject/obs-plugintemplate/wiki/CMake-Build-System-Options)
+- On Windows the plugin prefers “Text (GDI+)” for text rendering, and falls back to “Text (FreeType 2)” if needed.
+- Make sure the built‑in OBS sources “Image” and “Text” are available (they are by default).
 
-## GitHub Actions & CI
+Troubleshooting
 
-Default GitHub Actions workflows are available for the following repository actions:
+- Overlay never appears:
+  - Ensure you’re streaming (stats are only available while streaming).
+  - Lower the “Drop % threshold” temporarily to test.
+  - Try typing a short, simple text or pick a small PNG/JPG.
+- Nothing renders after switching to Image:
+  - Verify the image path is valid and readable.
+- Still stuck? Check Help → Log Files → View Last Log File for lines containing “[online-status]”.
 
-- `push`: Run for commits or tags pushed to `master` or `main` branches.
-- `pr-pull`: Run when a Pull Request has been pushed or synchronized.
-- `dispatch`: Run when triggered by the workflow dispatch in GitHub's user interface.
-- `build-project`: Builds the actual project and is triggered by other workflows.
-- `check-format`: Checks CMake and plugin source code formatting and is triggered by other workflows.
+Build from source (developers)
 
-The workflows make use of GitHub repository actions (contained in `.github/actions`) and build scripts (contained in `.github/scripts`) which are not needed for local development, but might need to be adjusted if additional/different steps are required to build the plugin.
-
-### Retrieving build artifacts
-
-Successful builds on GitHub Actions will produce build artifacts that can be downloaded for testing. These artifacts are commonly simple archives and will not contain package installers or installation programs.
-
-### Building a Release
-
-To create a release, an appropriately named tag needs to be pushed to the `main`/`master` branch using semantic versioning (e.g., `12.3.4`, `23.4.5-beta2`). A draft release will be created on the associated repository with generated installer packages or installation programs attached as release artifacts.
-
-## Signing and Notarizing on macOS
-
-Basic concepts of codesigning and notarization on macOS are explained in the correspodning [Wiki article](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS) which has a specific section for the [GitHub Actions setup](https://github.com/obsproject/obs-plugintemplate/wiki/Codesigning-On-macOS#setting-up-code-signing-for-github-actions).
+- Linux (example)
+  ```
+  cmake --preset ubuntu-x86_64
+  cmake --build --preset ubuntu-x86_64
+  cmake --install build_x86_64 --prefix release
+  ```
+- Windows/macOS builds are provided in Releases via
 
 ## Notes by Hector
 
@@ -77,3 +84,6 @@ create release folder
 ```
 cmake --install build_x86_64 --prefix release
 ```
+
+add message to tell the users the connection is stable now
+add how many seconds it will last.
