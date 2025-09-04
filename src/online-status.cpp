@@ -171,14 +171,31 @@ static void *online_status_create(obs_data_t *settings, obs_source_t *owner)
 	auto *s = new OnlineStatus();
 
 	// Create private child: "Text (FreeType 2)"
-	obs_data_t *child = obs_data_create();
-	obs_data_set_string(child, "text", obs_data_get_string(settings, "status_text"));
-	s->status_text = obs_source_create_private("text_ft2_source_v2", "online-status:text", child);
+    obs_data_t *child = obs_data_create();
+    obs_data_set_string(child, "text", obs_data_get_string(settings, "status_text"));
+    const char *text_source_id = "text_ft2_source_v2";
+#ifdef _WIN32
+    text_source_id = "text_gdiplus"; // Prefer GDI+ on Windows
+#endif
+    s->status_text = obs_source_create_private(text_source_id, "online-status:text", child);
+    if (!s->status_text) {
+        // Fallback to the other text source if primary is unavailable
+        const char *fallback_id =
+#ifdef _WIN32
+            "text_ft2_source_v2";
+#else
+            "text_gdiplus";
+#endif
+        s->status_text = obs_source_create_private(fallback_id, "online-status:text", child);
+        if (!s->status_text) {
+            blog(LOG_ERROR, "[online-status] Failed to create Text child (tried %s then %s)", text_source_id, fallback_id);
+        }
+    }
 	obs_data_release(child);
 
-	if (!s->status_text) {
-		blog(LOG_ERROR, "[online-status] Failed to create Text (FreeType 2) child (id=text_ft2_source_v2)");
-	}
+    if (!s->status_text) {
+        blog(LOG_ERROR, "[online-status] No text source could be created");
+    }
 
     // Create private child: "Image"
     obs_data_t *imgset = obs_data_create();
