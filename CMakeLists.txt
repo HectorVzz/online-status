@@ -42,6 +42,7 @@ endif()
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
   src/plugin-main.cpp
   src/online-status.cpp
+  src/online_status_properties.cpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

@@ -1,137 +1,64 @@
 // Order includes so OBS types are visible before we declare callbacks
-#include <obs-module.h>
-#include <plugin-support.h>
-#include <obs-frontend-api.h>
+#include "online_status.hpp"
 #include <string>
 #include <cmath>
 #include <utility>
 
-// Property UI visibility refresher (C-callable for OBS callbacks)
-static bool online_status_properties_refresh(obs_properties_t *props, obs_property_t * /*property*/, obs_data_t *settings)
-{
-    auto set_vis = [&](const char *name, bool v) {
-        if (obs_property_t *pp = obs_properties_get(props, name))
-            obs_property_set_visible(pp, v);
-    };
-
-    int section = (int)obs_data_get_int(settings, "ui_section");
-    int mode_val = (int)obs_data_get_int(settings, "content_mode");
-
-    // Dropping group inner properties
-    if (obs_property_t *grp = obs_properties_get(props, "dropping_group")) {
-        obs_properties_t *inner = obs_property_group_content(grp);
-        if (inner) {
-            bool show_drop = (section == 0);
-            if (obs_property_t *pp = obs_properties_get(inner, "content_mode"))
-                obs_property_set_visible(pp, show_drop);
-            if (obs_property_t *pp = obs_properties_get(inner, "status_text"))
-                obs_property_set_visible(pp, show_drop && mode_val == 0);
-            if (obs_property_t *pp = obs_properties_get(inner, "image_path"))
-                obs_property_set_visible(pp, show_drop && mode_val == 1);
-            if (obs_property_t *pp = obs_properties_get(inner, "drop_threshold_pct"))
-                obs_property_set_visible(pp, show_drop);
-            if (obs_property_t *pp = obs_properties_get(inner, "hide_after_sec"))
-                obs_property_set_visible(pp, show_drop);
-            if (obs_property_t *pp = obs_properties_get(inner, "drop_blink_enabled"))
-                obs_property_set_visible(pp, show_drop);
-            if (obs_property_t *pp = obs_properties_get(inner, "drop_blink_rate_hz"))
-                obs_property_set_visible(pp, show_drop);
-        }
-    }
-
-    // Stable group inner properties
-    if (obs_property_t *grp = obs_properties_get(props, "stable_group")) {
-        obs_properties_t *inner = obs_property_group_content(grp);
-        if (inner) {
-            bool s_enabled_v = obs_data_get_bool(settings, "stable_enabled");
-            int s_mode = (int)obs_data_get_int(settings, "stable_mode");
-            bool show_inner = (section == 1) && s_enabled_v;
-
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_mode"))
-                obs_property_set_visible(pp, section == 1);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_text"))
-                obs_property_set_visible(pp, show_inner && s_mode == 0);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_image_path"))
-                obs_property_set_visible(pp, show_inner && s_mode == 1);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_enabled"))
-                obs_property_set_visible(pp, section == 1);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_duration_sec"))
-                obs_property_set_visible(pp, (section == 1) && s_enabled_v);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_blink_enabled"))
-                obs_property_set_visible(pp, (section == 1) && s_enabled_v);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_blink_rate_hz"))
-                obs_property_set_visible(pp, (section == 1) && s_enabled_v);
-        }
-    }
-
-    // Pseudo-tabs visibility (no separate Blink tab)
-    bool show_dropping = (section == 0);
-    bool show_stable   = (section == 1);
-    bool show_adv      = (section == 2);
-
-    set_vis("visible", show_adv);
-    set_vis("test_force_drop", show_adv);
-    set_vis("test_simulate_spike", show_adv);
-    set_vis("test_show_stable", show_adv);
-    set_vis("test_hide_all", show_adv);
-
-    if (obs_property_t *grp = obs_properties_get(props, "dropping_group"))
-        obs_property_set_visible(grp, show_dropping);
-    if (obs_property_t *grp = obs_properties_get(props, "stable_group"))
-        obs_property_set_visible(grp, show_stable);
-    return true;
-}
 /*
     Show an image or text when the streamer is having connection problems or dropping frames
 */
 
-struct OnlineStatus {
-	obs_source_t *status_text = nullptr;
-	obs_source_t *status_image = nullptr;
-	// Stable-state children
-	obs_source_t *status_text_stable = nullptr;
-	obs_source_t *status_image_stable = nullptr;
-	std::string text;
-    std::string image_path;
-    // Stable content
-    std::string stable_text_msg;
-    std::string stable_image_path;
-    bool visible = false;
-    bool auto_visible = false;
-    int content_mode = 0; // 0 = text, 1 = image
-    double drop_threshold_pct = 1.0; // show when pct dropped in interval >= this
-    float hide_after_sec = 3.0f;     // hide after this many seconds without drops
-    uint64_t prev_total = 0;
-    uint64_t prev_dropped = 0;
-    float since_last_drop = 0.0f;
+// OnlineStatus is declared in online_status.hpp
 
-    // Blink config/state (separate for dropping and stable overlays)
-    bool drop_blink_enabled = false;
-    double drop_blink_rate_hz = 1.0; // blinks per second
-    double drop_blink_phase = 0.0;   // seconds into current period
-    bool drop_blink_on = true;       // current half-cycle visible?
+// ------------------------ Readability helpers ------------------------
+static inline bool dropping_blink_ok(const OnlineStatus *s)
+{
+    return !s->drop_blink_enabled || s->drop_blink_on;
+}
 
-    bool stable_blink_enabled = false;
-    double stable_blink_rate_hz = 1.0;
-    double stable_blink_phase = 0.0;
-    bool stable_blink_on = true;
+static inline bool stable_blink_ok(const OnlineStatus *s)
+{
+    return !s->stable_blink_enabled || s->stable_blink_on;
+}
 
-    // Stable overlay options/state
-    bool  stable_enabled = true;
-    int   stable_mode = 0;            // 0=text, 1=image
-    float stable_duration_sec = 3.0f; // how long to show after recovery
-    float stable_timer = 0.0f;
-    bool  stable_visible = false;
-    // Testing helpers
-    bool  test_force_drop = false;
-};
+static inline bool should_show_dropping(const OnlineStatus *s)
+{
+    return (s->auto_visible || s->visible) && dropping_blink_ok(s);
+}
 
-static const char *online_status_get_name(void *)
+static inline bool should_show_stable(const OnlineStatus *s)
+{
+    return s->stable_visible && s->stable_enabled && stable_blink_ok(s);
+}
+
+static inline void sync_child_enabled(OnlineStatus *s)
+{
+    const bool show_drop = should_show_dropping(s);
+    const bool show_stable = should_show_stable(s);
+    if (s->status_text)
+        obs_source_set_enabled(s->status_text, show_drop && s->content_mode == 0);
+    if (s->status_image)
+        obs_source_set_enabled(s->status_image, show_drop && s->content_mode == 1);
+    if (s->status_text_stable)
+        obs_source_set_enabled(s->status_text_stable, show_stable && s->stable_mode == 0);
+    if (s->status_image_stable)
+        obs_source_set_enabled(s->status_image_stable, show_stable && s->stable_mode == 1);
+}
+
+static inline void release_source(obs_source_t *&src)
+{
+    if (src) {
+        obs_source_release(src);
+        src = nullptr;
+    }
+}
+
+const char *online_status_get_name(void *)
 {
 	return "Online Status";
 }
 
-static void online_status_defaults(obs_data_t *settings)
+void online_status_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_string(settings, "status_text", "");
     obs_data_set_default_string(settings, "image_path", "");
@@ -156,14 +83,15 @@ static void online_status_defaults(obs_data_t *settings)
     obs_data_set_default_double(settings, "stable_blink_rate_hz", 1.0);
 }
 
-static void online_status_update(void *data, obs_data_t *settings)
+void online_status_update(void *data, obs_data_t *settings)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
-	s->auto_visible = obs_data_get_bool(settings, "auto_visible");
     s->visible = obs_data_get_bool(settings, "visible");
     s->content_mode = (int)obs_data_get_int(settings, "content_mode");
 	s->drop_threshold_pct = obs_data_get_double(settings, "drop_threshold_pct");
 	s->hide_after_sec = (float)obs_data_get_double(settings, "hide_after_sec");
+    // Advanced test flag
+    s->test_force_drop = obs_data_get_bool(settings, "test_force_drop");
     // Blink settings (separate)
     s->drop_blink_enabled = obs_data_get_bool(settings, "drop_blink_enabled");
     s->drop_blink_rate_hz = obs_data_get_double(settings, "drop_blink_rate_hz");
@@ -218,22 +146,11 @@ static void online_status_update(void *data, obs_data_t *settings)
         obs_data_release(imgset);
     }
 
-    const bool drop_blink_ok = (!s->drop_blink_enabled || s->drop_blink_on);
-    const bool stable_blink_ok = (!s->stable_blink_enabled || s->stable_blink_on);
-    const bool show_alert = (s->auto_visible || s->visible) && drop_blink_ok;
-    const bool show_stable = s->stable_visible && s->stable_enabled && stable_blink_ok;
     // Enable only the active child
-    if (s->status_text)
-        obs_source_set_enabled(s->status_text, show_alert && s->content_mode == 0);
-    if (s->status_image)
-        obs_source_set_enabled(s->status_image, show_alert && s->content_mode == 1);
-    if (s->status_text_stable)
-        obs_source_set_enabled(s->status_text_stable, show_stable && s->stable_mode == 0);
-    if (s->status_image_stable)
-        obs_source_set_enabled(s->status_image_stable, show_stable && s->stable_mode == 1);
+    sync_child_enabled(s);
 }
 
-static void online_status_video_tick(void *data, float seconds)
+void online_status_video_tick(void *data, float seconds)
 {
     auto *s = static_cast<OnlineStatus *>(data);
     if (!s)
@@ -341,53 +258,12 @@ static void online_status_video_tick(void *data, float seconds)
     }
 
     // Keep children enabled in sync with selected mode, blink and stable state
-    const bool blink_ok2_drop = (!s->drop_blink_enabled || s->drop_blink_on);
-    const bool blink_ok2_stable = (!s->stable_blink_enabled || s->stable_blink_on);
-    const bool show_alert2 = (s->auto_visible || s->visible) && blink_ok2_drop;
-    const bool show_stable2 = s->stable_visible && s->stable_enabled && blink_ok2_stable;
-    if (s->status_text)
-        obs_source_set_enabled(s->status_text, show_alert2 && s->content_mode == 0);
-    if (s->status_image)
-        obs_source_set_enabled(s->status_image, show_alert2 && s->content_mode == 1);
-    if (s->status_text_stable)
-        obs_source_set_enabled(s->status_text_stable, show_stable2 && s->stable_mode == 0);
-    if (s->status_image_stable)
-        obs_source_set_enabled(s->status_image_stable, show_stable2 && s->stable_mode == 1);
+    sync_child_enabled(s);
 }
 
-// Advanced testing buttons
-static bool online_status_btn_simulate_spike(obs_properties_t * /*props*/, obs_property_t * /*p*/, void *data)
-{
-    auto *s = static_cast<OnlineStatus *>(data);
-    if (!s) return false;
-    s->auto_visible = true;
-    s->since_last_drop = 0.0f;
-    s->stable_visible = false;
-    s->stable_timer = 0.0f;
-    return true; // refresh UI
-}
+// Test buttons are implemented in properties translation unit
 
-static bool online_status_btn_show_stable(obs_properties_t * /*props*/, obs_property_t * /*p*/, void *data)
-{
-    auto *s = static_cast<OnlineStatus *>(data);
-    if (!s) return false;
-    s->auto_visible = false;
-    s->stable_visible = true;
-    s->stable_timer = s->stable_duration_sec;
-    return true;
-}
-
-static bool online_status_btn_hide_all(obs_properties_t * /*props*/, obs_property_t * /*p*/, void *data)
-{
-    auto *s = static_cast<OnlineStatus *>(data);
-    if (!s) return false;
-    s->auto_visible = false;
-    s->stable_visible = false;
-    s->stable_timer = 0.0f;
-    return true;
-}
-
-static void *online_status_create(obs_data_t *settings, obs_source_t *owner)
+void *online_status_create(obs_data_t *settings, obs_source_t *owner)
 {
 	UNUSED_PARAMETER(owner);
 	auto *s = new OnlineStatus();
@@ -463,38 +339,24 @@ static void *online_status_create(obs_data_t *settings, obs_source_t *owner)
 	return s;
 }
 
-static void online_status_destroy(void *data)
+void online_status_destroy(void *data)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
-	if (s) {
-		if (s->status_text) {
-			obs_source_release(s->status_text);
-			s->status_text = nullptr;
-		}
-        if (s->status_image) {
-            obs_source_release(s->status_image);
-            s->status_image = nullptr;
-        }
-        if (s->status_text_stable) {
-            obs_source_release(s->status_text_stable);
-            s->status_text_stable = nullptr;
-        }
-        if (s->status_image_stable) {
-            obs_source_release(s->status_image_stable);
-            s->status_image_stable = nullptr;
-        }
-		delete s;
-	}
+    if (s) {
+        release_source(s->status_text);
+        release_source(s->status_image);
+        release_source(s->status_text_stable);
+        release_source(s->status_image_stable);
+        delete s;
+    }
 }
-static uint32_t online_status_get_width(void *data)
+uint32_t online_status_get_width(void *data)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
     if (!s)
         return 0;
-    const bool drop_blink_ok = (!s->drop_blink_enabled || s->drop_blink_on);
-    const bool stable_blink_ok = (!s->stable_blink_enabled || s->stable_blink_on);
-    const bool show_alert = (s->auto_visible || s->visible) && drop_blink_ok;
-    const bool show_stable = s->stable_visible && s->stable_enabled && stable_blink_ok;
+    const bool show_alert = should_show_dropping(s);
+    const bool show_stable = should_show_stable(s);
     if (show_alert) {
         if (s->content_mode == 1 && s->status_image)
             return obs_source_get_width(s->status_image);
@@ -511,15 +373,13 @@ static uint32_t online_status_get_width(void *data)
     return s->status_text ? obs_source_get_width(s->status_text) : 0;
 }
 
-static uint32_t online_status_get_height(void *data)
+uint32_t online_status_get_height(void *data)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
     if (!s)
         return 0;
-    const bool drop_blink_ok = (!s->drop_blink_enabled || s->drop_blink_on);
-    const bool stable_blink_ok = (!s->stable_blink_enabled || s->stable_blink_on);
-    const bool show_alert = (s->auto_visible || s->visible) && drop_blink_ok;
-    const bool show_stable = s->stable_visible && s->stable_enabled && stable_blink_ok;
+    const bool show_alert = should_show_dropping(s);
+    const bool show_stable = should_show_stable(s);
     if (show_alert) {
         if (s->content_mode == 1 && s->status_image)
             return obs_source_get_height(s->status_image);
@@ -534,13 +394,12 @@ static uint32_t online_status_get_height(void *data)
         return obs_source_get_height(s->status_image);
     return s->status_text ? obs_source_get_height(s->status_text) : 0;
 }
-static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
+void online_status_video_render(void *data, gs_effect_t * /*effect*/)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
     if (!s)
         return;
-    const bool drop_blink_ok = (!s->drop_blink_enabled || s->drop_blink_on);
-    if ((s->auto_visible || s->visible) && drop_blink_ok) {
+    if (should_show_dropping(s)) {
         if (s->content_mode == 1) {
             if (s->status_image)
                 obs_source_video_render(s->status_image);
@@ -550,8 +409,7 @@ static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
         }
         return;
     }
-    const bool stable_blink_ok = (!s->stable_blink_enabled || s->stable_blink_on);
-    if (s->stable_visible && s->stable_enabled && stable_blink_ok) {
+    if (should_show_stable(s)) {
         if (s->stable_mode == 1) {
             if (s->status_image_stable)
                 obs_source_video_render(s->status_image_stable);
@@ -562,90 +420,7 @@ static void online_status_video_render(void *data, gs_effect_t * /*effect*/)
     }
 }
 
-static obs_properties_t *online_status_properties(void *data)
-{
-    UNUSED_PARAMETER(data);
-	obs_properties_t *props = obs_properties_create();
-
-    // Section selector to simulate tabs
-    obs_property_t *section = obs_properties_add_list(
-        props, "ui_section", "Section",
-        OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    obs_property_list_add_int(section, "Dropping", 0);
-    obs_property_list_add_int(section, "Stable", 1);
-    obs_property_list_add_int(section, "Advanced", 2);
-
-    // Dropping overlay group
-    obs_properties_t *dropping = obs_properties_create();
-    obs_property_t *mode = obs_properties_add_list(dropping, "content_mode", "Content Type (when dropping)",
-                                                   OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    obs_property_list_add_int(mode, "Text", 0);
-    obs_property_list_add_int(mode, "Image", 1);
-
-	obs_properties_add_text(dropping, "status_text", "Text to show while dropping", OBS_TEXT_DEFAULT);
-    obs_properties_add_path(dropping, "image_path", "Image file (while dropping)", OBS_PATH_FILE,
-                            "Image files (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*.*)", nullptr);
-
-	obs_properties_add_float_slider(dropping, "drop_threshold_pct", "Drop % threshold (per-interval)", 0.0, 100.0,
-        0.1);
-    obs_properties_add_float_slider(dropping, "hide_after_sec", "Hide after seconds without drops", 0.0, 30.0, 0.1);
-    // Blink controls (Dropping)
-    obs_properties_add_bool(dropping, "drop_blink_enabled", "Blink (while dropping)");
-    obs_properties_add_float_slider(dropping, "drop_blink_rate_hz", "Blink rate (Hz)", 0.0, 10.0, 0.1);
-
-    obs_property_t *dropping_group = obs_properties_add_group(props, "dropping_group", "When dropping frames",
-                                                             OBS_GROUP_NORMAL, dropping);
-    obs_properties_add_bool(props, "visible", "Test text that auto-shows when dropping frames(for debugging)");
-
-    // Stable overlay group
-    obs_properties_t *stable = obs_properties_create();
-    obs_properties_add_bool(stable, "stable_enabled", "Show message when connection is stable");
-    obs_property_t *smode = obs_properties_add_list(stable, "stable_mode", "Content Type (when stable)",
-                                                    OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
-    obs_property_list_add_int(smode, "Text", 0);
-    obs_property_list_add_int(smode, "Image", 1);
-    obs_properties_add_text(stable, "stable_text", "Stable text", OBS_TEXT_DEFAULT);
-    obs_properties_add_path(stable, "stable_image_path", "Stable image file", OBS_PATH_FILE,
-                            "Image files (*.png *.jpg *.jpeg *.bmp *.gif);;All files (*.*)", nullptr);
-    obs_properties_add_float_slider(stable, "stable_duration_sec", "Stable message duration (seconds)",
-                                    0.0, 60.0, 0.1);
-    // Blink controls (Stable)
-    obs_properties_add_bool(stable, "stable_blink_enabled", "Blink (stable message)");
-    obs_properties_add_float_slider(stable, "stable_blink_rate_hz", "Blink rate (Hz)", 0.0, 10.0, 0.1);
-
-    obs_property_t *stable_group = obs_properties_add_group(props, "stable_group", "When connection stabilizes", OBS_GROUP_NORMAL, stable);
-
-    // Advanced: testing controls
-    obs_properties_add_bool(props, "test_force_drop", "Test: Force dropping overlay");
-    obs_properties_add_button(props, "test_simulate_spike", "Test: Simulate drop spike", online_status_btn_simulate_spike);
-    obs_properties_add_button(props, "test_show_stable", "Test: Show stable message now", online_status_btn_show_stable);
-    obs_properties_add_button(props, "test_hide_all", "Test: Hide overlays", online_status_btn_hide_all);
-
-    // Dynamic visibility handled by C-callback online_status_properties_refresh()
-
-    // Hook callbacks
-    obs_property_set_modified_callback(section, online_status_properties_refresh);
-    obs_property_set_modified_callback(mode,    online_status_properties_refresh);
-    // Hook inner dropping toggles
-    if (obs_property_t *grp = dropping_group) {
-        obs_properties_t *inner = obs_property_group_content(grp);
-        if (inner) {
-            if (obs_property_t *pp = obs_properties_get(inner, "content_mode"))
-                obs_property_set_modified_callback(pp, online_status_properties_refresh);
-        }
-    }
-    // Also attach to stable group inner toggles
-    if (obs_property_t *grp = stable_group) {
-        obs_properties_t *inner = obs_property_group_content(grp);
-        if (inner) {
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_enabled"))
-                obs_property_set_modified_callback(pp, online_status_properties_refresh);
-            if (obs_property_t *pp = obs_properties_get(inner, "stable_mode"))
-                obs_property_set_modified_callback(pp, online_status_properties_refresh);
-        }
-    }
-	return props;
-}
+// online_status_properties is implemented in properties translation unit
 
 static obs_source_info online_status_info = {
     .id = "online-status",
