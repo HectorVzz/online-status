@@ -40,6 +40,20 @@ Use in OBS
    - “Hide after seconds without drops” — how quickly it disappears once stable.
 6. Leave “Visible” on for normal behavior. The overlay will appear only during drops.
 
+### Sections Explained
+
+Dropping:
+- Active only while the plugin detects a recent burst of dropped frames above your threshold.
+- You pick Text or Image, the drop percentage that triggers it, optional blink, and how long to wait with no further drops before hiding.
+
+Stable:
+- Optional “recovery” message that appears after the dropping overlay disappears (i.e., when things stabilized).
+- Independent mode (Text/Image), duration timer, and its own blink controls.
+
+Advanced:
+- Manual test tools so you can simulate a drop spike or show/hide the stable message without needing real network problems.
+- Also contains the manual “Visible” toggle useful for debugging source placement.
+
 Notes
 
 - On Windows the plugin prefers “Text (GDI+)” for text rendering, and falls back to “Text (FreeType 2)” if needed.
