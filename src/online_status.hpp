@@ -9,58 +9,62 @@
 
 // Smart wrapper for obs_source_t (calls obs_source_release automatically)
 struct SourceReleaser {
-    void operator()(obs_source_t *p) const noexcept { if (p) obs_source_release(p); }
+	void operator()(obs_source_t *p) const noexcept
+	{
+		if (p)
+			obs_source_release(p);
+	}
 };
 using SourceHandle = std::unique_ptr<obs_source_t, SourceReleaser>;
 
 // All runtime data is kept in this struct
 struct OnlineStatus {
-    // Dropping children
-    SourceHandle status_text;
-    SourceHandle status_image;
+	// Dropping children
+	SourceHandle status_text;
+	SourceHandle status_image;
 
-    // Stable-state children
-    SourceHandle status_text_stable;
-    SourceHandle status_image_stable;
+	// Stable-state children
+	SourceHandle status_text_stable;
+	SourceHandle status_image_stable;
 
-    // Dropping content
-    std::string text;
-    std::string image_path;
+	// Dropping content
+	std::string text;
+	std::string image_path;
 
-    // Stable content
-    std::string stable_text_msg;
-    std::string stable_image_path;
+	// Stable content
+	std::string stable_text_msg;
+	std::string stable_image_path;
 
-    // Visibility/state
-    bool visible = false;
-    bool auto_visible = false;
-    int content_mode = 0; // 0 = text, 1 = image
-    double drop_threshold_pct = 1.0; // show when pct dropped in interval >= this
-    float hide_after_sec = 3.0f;     // hide after this many seconds without drops
-    uint64_t prev_total = 0;
-    uint64_t prev_dropped = 0;
-    float since_last_drop = 0.0f;
+	// Visibility/state
+	bool visible = false;
+	bool auto_visible = false;
+	int content_mode = 0;            // 0 = text, 1 = image
+	double drop_threshold_pct = 1.0; // show when pct dropped in interval >= this
+	float hide_after_sec = 3.0f;     // hide after this many seconds without drops
+	uint64_t prev_total = 0;
+	uint64_t prev_dropped = 0;
+	float since_last_drop = 0.0f;
 
-    // Blink config/state (separate for dropping and stable overlays)
-    bool drop_blink_enabled = false;
-    double drop_blink_rate_hz = 1.0; // blinks per second
-    double drop_blink_phase = 0.0;   // seconds into current period
-    bool drop_blink_on = true;       // current half-cycle visible?
+	// Blink config/state (separate for dropping and stable overlays)
+	bool drop_blink_enabled = false;
+	double drop_blink_rate_hz = 1.0; // blinks per second
+	double drop_blink_phase = 0.0;   // seconds into current period
+	bool drop_blink_on = true;       // current half-cycle visible?
 
-    bool stable_blink_enabled = false;
-    double stable_blink_rate_hz = 1.0;
-    double stable_blink_phase = 0.0;
-    bool stable_blink_on = true;
+	bool stable_blink_enabled = false;
+	double stable_blink_rate_hz = 1.0;
+	double stable_blink_phase = 0.0;
+	bool stable_blink_on = true;
 
-    // Stable overlay options/state
-    bool  stable_enabled = true;
-    int   stable_mode = 0;            // 0=text, 1=image
-    float stable_duration_sec = 3.0f; // how long to show after recovery
-    float stable_timer = 0.0f;
-    bool  stable_visible = false;
+	// Stable overlay options/state
+	bool stable_enabled = true;
+	int stable_mode = 0;              // 0=text, 1=image
+	float stable_duration_sec = 3.0f; // how long to show after recovery
+	float stable_timer = 0.0f;
+	bool stable_visible = false;
 
-    // Testing helpers
-    bool  test_force_drop = false;
+	// Testing helpers
+	bool test_force_drop = false;
 };
 
 // OBS source callbacks
