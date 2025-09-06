@@ -6,6 +6,7 @@
 #include <plugin-support.h>
 #include <string>
 
+// All runtime data is kept in this struct
 struct OnlineStatus {
     // Dropping children
     obs_source_t *status_text = nullptr;

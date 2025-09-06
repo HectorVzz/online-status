@@ -53,6 +53,63 @@ static inline void release_source(obs_source_t *&src)
     }
 }
 
+// ------------------------ Child creation helpers ------------------------
+static obs_source_t *create_text_child(const char *name, const char *text_value)
+{
+    // Candidate order depends on platform (prefer GDI+ on Windows, FT2 elsewhere)
+#ifdef _WIN32
+    const char *candidates[] = {"text_gdiplus", "text_ft2_source_v2"};
+#else
+    const char *candidates[] = {"text_ft2_source_v2", "text_gdiplus"};
+#endif
+
+    obs_source_t *result = nullptr;
+    for (const char *id : candidates) {
+        obs_data_t *child = obs_data_create();
+        obs_data_set_string(child, "text", text_value ? text_value : "");
+        result = obs_source_create_private(id, name, child);
+        obs_data_release(child);
+        if (result) {
+            return result; // Success on first working backend
+        }
+    }
+    blog(LOG_ERROR, "[online-status] Failed to create Text child (%s)", name);
+    return nullptr;
+}
+
+static obs_source_t *create_image_child(const char *name, const char *file_path)
+{
+    obs_data_t *img = obs_data_create();
+    obs_data_set_string(img, "file", file_path ? file_path : "");
+    obs_source_t *result = obs_source_create_private("image_source", name, img);
+    obs_data_release(img);
+    if (!result) {
+        blog(LOG_ERROR, "[online-status] Failed to create Image child (%s)", name);
+    }
+    return result;
+}
+
+// ------------------------ Child update helpers ------------------------
+static inline void update_text_child(obs_source_t *child, const std::string &text)
+{
+    if (!child)
+        return;
+    obs_data_t *data = obs_data_create();
+    obs_data_set_string(data, "text", text.c_str());
+    obs_source_update(child, data);
+    obs_data_release(data);
+}
+
+static inline void update_image_child(obs_source_t *child, const std::string &file_path)
+{
+    if (!child)
+        return;
+    obs_data_t *data = obs_data_create();
+    obs_data_set_string(data, "file", file_path.c_str());
+    obs_source_update(child, data);
+    obs_data_release(data);
+}
+
 const char *online_status_get_name(void *)
 {
 	return "Online Status";
@@ -116,35 +173,13 @@ void online_status_update(void *data, obs_data_t *settings)
     const char *simg = obs_data_get_string(settings, "stable_image_path");
     s->stable_image_path = simg ? simg : "";
 
-	if (s->status_text) {
-		obs_data_t *child = obs_data_create();
-		obs_data_set_string(child, "text", s->text.c_str());
-		// Optional: font, color, outline, bg
-		// obs_data_set_obj(child, "font", <obs_data with size/family/etc>);
-		obs_source_update(s->status_text, child);
-		obs_data_release(child);
-	}
-
-    if (s->status_image) {
-        obs_data_t *imgset = obs_data_create();
-        obs_data_set_string(imgset, "file", s->image_path.c_str());
-        obs_source_update(s->status_image, imgset);
-        obs_data_release(imgset);
-	}
+	// Update dropping children
+    update_text_child(s->status_text, s->text);
+    update_image_child(s->status_image, s->image_path);
 
     // Update stable children
-    if (s->status_text_stable) {
-        obs_data_t *child = obs_data_create();
-        obs_data_set_string(child, "text", s->stable_text_msg.c_str());
-        obs_source_update(s->status_text_stable, child);
-        obs_data_release(child);
-    }
-    if (s->status_image_stable) {
-        obs_data_t *imgset = obs_data_create();
-        obs_data_set_string(imgset, "file", s->stable_image_path.c_str());
-        obs_source_update(s->status_image_stable, imgset);
-        obs_data_release(imgset);
-    }
+    update_text_child(s->status_text_stable, s->stable_text_msg);
+    update_image_child(s->status_image_stable, s->stable_image_path);
 
     // Enable only the active child
     sync_child_enabled(s);
@@ -261,82 +296,28 @@ void online_status_video_tick(void *data, float seconds)
     sync_child_enabled(s);
 }
 
-// Test buttons are implemented in properties translation unit
 
+// Create the OnlineStatus instance and its children ( text and image sources )
 void *online_status_create(obs_data_t *settings, obs_source_t *owner)
 {
-	UNUSED_PARAMETER(owner);
-	auto *s = new OnlineStatus();
+    UNUSED_PARAMETER(owner);
+    auto *s = new OnlineStatus();
 
-	// Create private child: "Text (FreeType 2)"
-    obs_data_t *child = obs_data_create();
-    obs_data_set_string(child, "text", obs_data_get_string(settings, "status_text"));
-    const char *text_source_id = "text_ft2_source_v2";
-#ifdef _WIN32
-    text_source_id = "text_gdiplus"; // Prefer GDI+ on Windows
-#endif
-    s->status_text = obs_source_create_private(text_source_id, "online-status:text", child);
-    if (!s->status_text) {
-        // Fallback to the other text source if primary is unavailable
-        const char *fallback_id =
-#ifdef _WIN32
-            "text_ft2_source_v2";
-#else
-            "text_gdiplus";
-#endif
-        s->status_text = obs_source_create_private(fallback_id, "online-status:text", child);
-        if (!s->status_text) {
-            blog(LOG_ERROR, "[online-status] Failed to create Text child (tried %s then %s)", text_source_id, fallback_id);
-        }
-    }
-	obs_data_release(child);
+    const char *drop_text   = obs_data_get_string(settings, "status_text");
+    const char *drop_image  = obs_data_get_string(settings, "image_path");
+    const char *stable_text = obs_data_get_string(settings, "stable_text");
+    const char *stable_img  = obs_data_get_string(settings, "stable_image_path");
 
-    if (!s->status_text) {
-        blog(LOG_ERROR, "[online-status] No text source could be created");
-    }
-
-    // Create private child: "Image"
-    obs_data_t *imgset = obs_data_create();
-    obs_data_set_string(imgset, "file", obs_data_get_string(settings, "image_path"));
-    s->status_image = obs_source_create_private("image_source", "online-status:image", imgset);
-    obs_data_release(imgset);
-
-    if (!s->status_image) {
-        blog(LOG_ERROR, "[online-status] Failed to create Image child (id=image_source)");
-    }
+    // Create dropping children
+    s->status_text  = create_text_child("online-status:text", drop_text);
+    s->status_image = create_image_child("online-status:image", drop_image);
 
     // Create stable children
-    obs_data_t *stable_text = obs_data_create();
-    obs_data_set_string(stable_text, "text", obs_data_get_string(settings, "stable_text"));
-    const char *stable_text_id = "text_ft2_source_v2";
-#ifdef _WIN32
-    stable_text_id = "text_gdiplus";
-#endif
-    s->status_text_stable = obs_source_create_private(stable_text_id, "online-status:text-stable", stable_text);
-    if (!s->status_text_stable) {
-        const char *fallback_id2 =
-#ifdef _WIN32
-            "text_ft2_source_v2";
-#else
-            "text_gdiplus";
-#endif
-        s->status_text_stable = obs_source_create_private(fallback_id2, "online-status:text-stable", stable_text);
-        if (!s->status_text_stable) {
-            blog(LOG_ERROR, "[online-status] Failed to create Stable Text child (tried %s then %s)", stable_text_id, fallback_id2);
-        }
-    }
-    obs_data_release(stable_text);
+    s->status_text_stable  = create_text_child("online-status:text-stable", stable_text);
+    s->status_image_stable = create_image_child("online-status:image-stable", stable_img);
 
-    obs_data_t *stable_img = obs_data_create();
-    obs_data_set_string(stable_img, "file", obs_data_get_string(settings, "stable_image_path"));
-    s->status_image_stable = obs_source_create_private("image_source", "online-status:image-stable", stable_img);
-    obs_data_release(stable_img);
-    if (!s->status_image_stable) {
-        blog(LOG_ERROR, "[online-status] Failed to create Stable Image child");
-    }
-
-	online_status_update(s, settings);
-	return s;
+    online_status_update(s, settings);
+    return s;
 }
 
 void online_status_destroy(void *data)
