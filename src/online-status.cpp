@@ -1,6 +1,7 @@
 // Order includes so OBS types are visible before we declare callbacks
 #include "online_status.hpp"
 #include <string>
+#include <obs-frontend-api.h>
 #include <cmath>
 #include <utility>
 

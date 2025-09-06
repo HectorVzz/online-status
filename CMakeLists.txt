@@ -4,7 +4,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCO
 
 project(${_name} VERSION ${_version})
 
-option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" OFF)
+# Plugin requires the OBS Frontend API (used for streaming output/frame stats)
+# Make it unconditional to avoid missing include paths on platforms (macOS)
 option(ENABLE_QT "Use Qt functionality" OFF)
 
 include(compilerconfig)
@@ -21,10 +22,9 @@ set_property(TARGET ${CMAKE_PROJECT_NAME} PROPERTY CXX_EXTENSIONS OFF)
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
-if(ENABLE_FRONTEND_API)
-  find_package(obs-frontend-api REQUIRED)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::obs-frontend-api)
-endif()
+# Always require obs-frontend-api (we call obs_frontend_get_streaming_output etc.)
+find_package(obs-frontend-api REQUIRED)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::obs-frontend-api)
 
 if(ENABLE_QT)
   find_package(Qt6 COMPONENTS Widgets Core)
