@@ -35,26 +35,20 @@ static inline void sync_child_enabled(OnlineStatus *s)
 {
     const bool show_drop = should_show_dropping(s);
     const bool show_stable = should_show_stable(s);
-    if (s->status_text)
-        obs_source_set_enabled(s->status_text, show_drop && s->content_mode == 0);
-    if (s->status_image)
-        obs_source_set_enabled(s->status_image, show_drop && s->content_mode == 1);
-    if (s->status_text_stable)
-        obs_source_set_enabled(s->status_text_stable, show_stable && s->stable_mode == 0);
-    if (s->status_image_stable)
-        obs_source_set_enabled(s->status_image_stable, show_stable && s->stable_mode == 1);
+    if (s->status_text.get())
+        obs_source_set_enabled(s->status_text.get(), show_drop && s->content_mode == 0);
+    if (s->status_image.get())
+        obs_source_set_enabled(s->status_image.get(), show_drop && s->content_mode == 1);
+    if (s->status_text_stable.get())
+        obs_source_set_enabled(s->status_text_stable.get(), show_stable && s->stable_mode == 0);
+    if (s->status_image_stable.get())
+        obs_source_set_enabled(s->status_image_stable.get(), show_stable && s->stable_mode == 1);
 }
 
-static inline void release_source(obs_source_t *&src)
-{
-    if (src) {
-        obs_source_release(src);
-        src = nullptr;
-    }
-}
+// release_source helper no longer needed with smart pointers
 
 // ------------------------ Child creation helpers ------------------------
-static obs_source_t *create_text_child(const char *name, const char *text_value)
+static obs_source_t *create_text_child_raw(const char *name, const char *text_value)
 {
     // Candidate order depends on platform (prefer GDI+ on Windows, FT2 elsewhere)
 #ifdef _WIN32
@@ -77,7 +71,7 @@ static obs_source_t *create_text_child(const char *name, const char *text_value)
     return nullptr;
 }
 
-static obs_source_t *create_image_child(const char *name, const char *file_path)
+static obs_source_t *create_image_child_raw(const char *name, const char *file_path)
 {
     obs_data_t *img = obs_data_create();
     obs_data_set_string(img, "file", file_path ? file_path : "");
@@ -174,12 +168,12 @@ void online_status_update(void *data, obs_data_t *settings)
     s->stable_image_path = simg ? simg : "";
 
 	// Update dropping children
-    update_text_child(s->status_text, s->text);
-    update_image_child(s->status_image, s->image_path);
+    update_text_child(s->status_text.get(), s->text);
+    update_image_child(s->status_image.get(), s->image_path);
 
     // Update stable children
-    update_text_child(s->status_text_stable, s->stable_text_msg);
-    update_image_child(s->status_image_stable, s->stable_image_path);
+    update_text_child(s->status_text_stable.get(), s->stable_text_msg);
+    update_image_child(s->status_image_stable.get(), s->stable_image_path);
 
     // Enable only the active child
     sync_child_enabled(s);
@@ -309,12 +303,12 @@ void *online_status_create(obs_data_t *settings, obs_source_t *owner)
     const char *stable_img  = obs_data_get_string(settings, "stable_image_path");
 
     // Create dropping children
-    s->status_text  = create_text_child("online-status:text", drop_text);
-    s->status_image = create_image_child("online-status:image", drop_image);
+    s->status_text.reset(create_text_child_raw("online-status:text", drop_text));
+    s->status_image.reset(create_image_child_raw("online-status:image", drop_image));
 
     // Create stable children
-    s->status_text_stable  = create_text_child("online-status:text-stable", stable_text);
-    s->status_image_stable = create_image_child("online-status:image-stable", stable_img);
+    s->status_text_stable.reset(create_text_child_raw("online-status:text-stable", stable_text));
+    s->status_image_stable.reset(create_image_child_raw("online-status:image-stable", stable_img));
 
     online_status_update(s, settings);
     return s;
@@ -323,13 +317,7 @@ void *online_status_create(obs_data_t *settings, obs_source_t *owner)
 void online_status_destroy(void *data)
 {
 	auto *s = static_cast<OnlineStatus *>(data);
-    if (s) {
-        release_source(s->status_text);
-        release_source(s->status_image);
-        release_source(s->status_text_stable);
-        release_source(s->status_image_stable);
-        delete s;
-    }
+    delete s; // smart pointers release automatically
 }
 uint32_t online_status_get_width(void *data)
 {
@@ -339,19 +327,19 @@ uint32_t online_status_get_width(void *data)
     const bool show_alert = should_show_dropping(s);
     const bool show_stable = should_show_stable(s);
     if (show_alert) {
-        if (s->content_mode == 1 && s->status_image)
-            return obs_source_get_width(s->status_image);
-        return s->status_text ? obs_source_get_width(s->status_text) : 0;
+        if (s->content_mode == 1 && s->status_image.get())
+            return obs_source_get_width(s->status_image.get());
+        return s->status_text.get() ? obs_source_get_width(s->status_text.get()) : 0;
     }
     if (show_stable) {
-        if (s->stable_mode == 1 && s->status_image_stable)
-            return obs_source_get_width(s->status_image_stable);
-        return s->status_text_stable ? obs_source_get_width(s->status_text_stable) : 0;
+        if (s->stable_mode == 1 && s->status_image_stable.get())
+            return obs_source_get_width(s->status_image_stable.get());
+        return s->status_text_stable.get() ? obs_source_get_width(s->status_text_stable.get()) : 0;
     }
     // Fallback to dropping-mode size
-    if (s->content_mode == 1 && s->status_image)
-        return obs_source_get_width(s->status_image);
-    return s->status_text ? obs_source_get_width(s->status_text) : 0;
+    if (s->content_mode == 1 && s->status_image.get())
+        return obs_source_get_width(s->status_image.get());
+    return s->status_text.get() ? obs_source_get_width(s->status_text.get()) : 0;
 }
 
 uint32_t online_status_get_height(void *data)
@@ -362,18 +350,18 @@ uint32_t online_status_get_height(void *data)
     const bool show_alert = should_show_dropping(s);
     const bool show_stable = should_show_stable(s);
     if (show_alert) {
-        if (s->content_mode == 1 && s->status_image)
-            return obs_source_get_height(s->status_image);
-        return s->status_text ? obs_source_get_height(s->status_text) : 0;
+        if (s->content_mode == 1 && s->status_image.get())
+            return obs_source_get_height(s->status_image.get());
+        return s->status_text.get() ? obs_source_get_height(s->status_text.get()) : 0;
     }
     if (show_stable) {
-        if (s->stable_mode == 1 && s->status_image_stable)
-            return obs_source_get_height(s->status_image_stable);
-        return s->status_text_stable ? obs_source_get_height(s->status_text_stable) : 0;
+        if (s->stable_mode == 1 && s->status_image_stable.get())
+            return obs_source_get_height(s->status_image_stable.get());
+        return s->status_text_stable.get() ? obs_source_get_height(s->status_text_stable.get()) : 0;
     }
-    if (s->content_mode == 1 && s->status_image)
-        return obs_source_get_height(s->status_image);
-    return s->status_text ? obs_source_get_height(s->status_text) : 0;
+    if (s->content_mode == 1 && s->status_image.get())
+        return obs_source_get_height(s->status_image.get());
+    return s->status_text.get() ? obs_source_get_height(s->status_text.get()) : 0;
 }
 void online_status_video_render(void *data, gs_effect_t * /*effect*/)
 {
@@ -382,21 +370,21 @@ void online_status_video_render(void *data, gs_effect_t * /*effect*/)
         return;
     if (should_show_dropping(s)) {
         if (s->content_mode == 1) {
-            if (s->status_image)
-                obs_source_video_render(s->status_image);
+            if (s->status_image.get())
+                obs_source_video_render(s->status_image.get());
         } else {
-            if (s->status_text)
-                obs_source_video_render(s->status_text);
+            if (s->status_text.get())
+                obs_source_video_render(s->status_text.get());
         }
         return;
     }
     if (should_show_stable(s)) {
         if (s->stable_mode == 1) {
-            if (s->status_image_stable)
-                obs_source_video_render(s->status_image_stable);
+            if (s->status_image_stable.get())
+                obs_source_video_render(s->status_image_stable.get());
         } else {
-            if (s->status_text_stable)
-                obs_source_video_render(s->status_text_stable);
+            if (s->status_text_stable.get())
+                obs_source_video_render(s->status_text_stable.get());
         }
     }
 }

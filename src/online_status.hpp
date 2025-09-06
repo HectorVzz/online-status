@@ -5,16 +5,23 @@
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
 #include <string>
+#include <memory>
+
+// Smart wrapper for obs_source_t (calls obs_source_release automatically)
+struct SourceReleaser {
+    void operator()(obs_source_t *p) const noexcept { if (p) obs_source_release(p); }
+};
+using SourceHandle = std::unique_ptr<obs_source_t, SourceReleaser>;
 
 // All runtime data is kept in this struct
 struct OnlineStatus {
     // Dropping children
-    obs_source_t *status_text = nullptr;
-    obs_source_t *status_image = nullptr;
+    SourceHandle status_text;
+    SourceHandle status_image;
 
     // Stable-state children
-    obs_source_t *status_text_stable = nullptr;
-    obs_source_t *status_image_stable = nullptr;
+    SourceHandle status_text_stable;
+    SourceHandle status_image_stable;
 
     // Dropping content
     std::string text;
